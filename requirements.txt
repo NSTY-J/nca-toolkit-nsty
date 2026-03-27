@@ -8,6 +8,7 @@ APScheduler
 srt
 numpy
 torch
+soundfile
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
@@ -20,3 +21,6 @@ boto3
 Pillow
 matplotlib
 yt-dlp
+pyannote.audio>=3.0.0
+whisperx
+torchaudio

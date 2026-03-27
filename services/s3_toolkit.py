@@ -19,9 +19,33 @@
 import os
 import boto3
 import logging
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse, quote, unquote
 
 logger = logging.getLogger(__name__)
+
+def delete_from_s3(file_url, s3_url, access_key, secret_key, bucket_name, region):
+    session = boto3.Session(
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region
+    )
+    client = session.client('s3', endpoint_url=s3_url)
+
+    parsed = urlparse(file_url)
+    path = parsed.path  # e.g. /nca-toolkit/filename.webm
+    prefix = f"/{bucket_name}/"
+    if path.startswith(prefix):
+        object_key = unquote(path[len(prefix):])
+    else:
+        object_key = unquote(path.rsplit('/', 1)[-1])
+
+    try:
+        client.delete_object(Bucket=bucket_name, Key=object_key)
+        logger.info(f"Deleted from S3: {object_key}")
+        return object_key
+    except Exception as e:
+        logger.error(f"Error deleting file from S3: {e}")
+        raise
 
 def upload_to_s3(file_path, s3_url, access_key, secret_key, bucket_name, region):
     # Parse the S3 URL into bucket, region, and endpoint

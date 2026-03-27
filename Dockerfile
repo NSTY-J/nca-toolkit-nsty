@@ -113,14 +113,15 @@ RUN git clone https://github.com/libass/libass.git && \
     ldconfig && \
     cd .. && rm -rf libass
 
-# Build and install FFmpeg with all required features
+# Build and install FFmpeg 8 with shared libs (libavutil.so.60 etc.) for torchcodec
 RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
     cd ffmpeg && \
-    git checkout n7.0.2 && \
+    git checkout n8.0 && \
     PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig" \
     CFLAGS="-I/usr/include/freetype2" \
     LDFLAGS="-L/usr/lib/x86_64-linux-gnu" \
     ./configure --prefix=/usr/local \
+        --enable-shared \
         --enable-gpl \
         --enable-pthreads \
         --enable-neon \
@@ -150,6 +151,7 @@ RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
         --enable-gnutls \
     && make -j$(nproc) && \
     make install && \
+    ldconfig && \
     cd .. && rm -rf ffmpeg
 
 # Add /usr/local/bin to PATH (if not already included)
@@ -173,23 +175,25 @@ RUN mkdir -p ${WHISPER_CACHE_DIR}
 # Copy the requirements file first to optimize caching
 COPY requirements.txt .
 
-# Install Python dependencies, upgrade pip 
+# Install Python dependencies, upgrade pip
+# Uninstall torchcodec: pulled in by torchaudio/pyannote but ABI-incompatible with torch 2.8+cu128 in this image.
+# We do not use it (pyannote audio via soundfile+ffmpeg); removing it avoids the long torchcodec load traceback.
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install openai-whisper && \
     pip install playwright && \
-    pip install jsonschema 
+    pip install jsonschema && \
+    pip uninstall -y torchcodec || true
 
-# Create the appuser 
-RUN useradd -m appuser 
+# Upgrade Lightning checkpoint used by WhisperX VAD so it does not run on every process
+RUN python -m lightning.pytorch.utilities.upgrade_checkpoint /usr/local/lib/python3.10/site-packages/whisperx/assets/pytorch_model.bin 2>/dev/null || true
 
-# Give appuser ownership of the /app directory (including whisper_cache)
-RUN chown appuser:appuser /app 
+# Pre-download Whisper base model as root (before USER switch) so cache dir is writable
+RUN python -c "import os; import whisper; cache=os.environ.get('WHISPER_CACHE_DIR', '/app/whisper_cache'); whisper.load_model('base', download_root=cache)"
 
-# Important: Switch to the appuser before downloading the model
+# Create the appuser and give ownership of /app
+RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
-
-RUN python -c "import os; print(os.environ.get('WHISPER_CACHE_DIR')); import whisper; whisper.load_model('base')"
 
 # Install Playwright Chromium browser as appuser
 RUN playwright install chromium

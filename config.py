@@ -27,6 +27,12 @@ if not API_KEY:
 # Storage path setting
 LOCAL_STORAGE_PATH = os.environ.get('LOCAL_STORAGE_PATH', '/tmp')
 
+# Whisper model cache (persistent volume recommended to avoid re-downloading on container restart)
+WHISPER_CACHE_DIR = os.environ.get('WHISPER_CACHE_DIR') or os.path.expanduser('~/.cache/whisper')
+
+# Hugging Face token for pyannote models (required when diarize=true)
+HF_TOKEN = os.environ.get('HF_TOKEN', '')
+
 # GCP environment variables
 GCP_SA_CREDENTIALS = os.environ.get('GCP_SA_CREDENTIALS', '')
 GCP_BUCKET_NAME = os.environ.get('GCP_BUCKET_NAME', '')

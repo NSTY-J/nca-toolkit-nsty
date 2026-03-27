@@ -21,6 +21,7 @@ from app_utils import *
 import logging
 import os
 from services.v1.media.media_transcribe import process_transcribe_media
+from services.v1.media.media_transcribe_whisperx import process_transcribe_media_whisperx
 from services.authentication import authenticate
 from services.cloud_storage import upload_file
 
@@ -42,7 +43,13 @@ logger = logging.getLogger(__name__)
         "language": {"type": "string"},
         "webhook_url": {"type": "string", "format": "uri"},
         "id": {"type": "string"},
-        "words_per_line": {"type": "integer", "minimum": 1}
+        "words_per_line": {"type": "integer", "minimum": 1},
+        "engine": {"type": "string", "enum": ["pyannote", "whisperx"]},
+        "model_size": {"type": "string"},
+        "diarize": {"type": "boolean"},
+        "min_speakers": {"type": "integer", "minimum": 1},
+        "max_speakers": {"type": "integer", "minimum": 1},
+        "progress_callback_url": {"type": "string", "format": "uri"}
     },
     "required": ["media_url"],
     "additionalProperties": False
@@ -60,11 +67,53 @@ def transcribe(job_id, data):
     webhook_url = data.get('webhook_url')
     id = data.get('id')
     words_per_line = data.get('words_per_line', None)
+    engine = data.get('engine') or 'pyannote'
+    model_size = (data.get('model_size') or "").strip().lower() or None
+    diarize = data.get('diarize', False)
+    min_speakers = data.get('min_speakers', None)
+    max_speakers = data.get('max_speakers', None)
+    progress_callback_url = data.get('progress_callback_url') or None
 
     logger.info(f"Job {job_id}: Received transcription request for {media_url}")
 
     try:
-        result = process_transcribe_media(media_url, task, include_text, include_srt, include_segments, word_timestamps, response_type, language, job_id, words_per_line)
+        if engine == "whisperx":
+            logger.info(f"Job {job_id}: Using WhisperX engine")
+            result = process_transcribe_media_whisperx(
+                media_url,
+                task,
+                include_text,
+                include_srt,
+                include_segments,
+                response_type,
+                language,
+                job_id,
+                words_per_line,
+                diarize,
+                min_speakers,
+                max_speakers,
+                model_size,
+                progress_callback_url=progress_callback_url,
+            )
+        else:
+            logger.info(f"Job {job_id}: Using pyannote engine")
+            result = process_transcribe_media(
+                media_url,
+                task,
+                include_text,
+                include_srt,
+                include_segments,
+                word_timestamps,
+                response_type,
+                language,
+                job_id,
+                words_per_line,
+                diarize,
+                min_speakers,
+                max_speakers,
+                model_size,
+                progress_callback_url=progress_callback_url,
+            )
         logger.info(f"Job {job_id}: Transcription process completed successfully")
 
         # If the result is a file path, upload it using the unified upload_file() method

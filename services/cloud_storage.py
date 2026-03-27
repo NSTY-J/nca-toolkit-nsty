@@ -20,7 +20,7 @@ import os
 import logging
 from abc import ABC, abstractmethod
 from services.gcp_toolkit import upload_to_gcs
-from services.s3_toolkit import upload_to_s3
+from services.s3_toolkit import upload_to_s3, delete_from_s3
 from config import validate_env_vars
 from urllib.parse import urlparse
 
@@ -86,6 +86,9 @@ class S3CompatibleProvider(CloudStorageProvider):
     def upload_file(self, file_path: str) -> str:
         return upload_to_s3(file_path, self.endpoint_url, self.access_key, self.secret_key, self.bucket_name, self.region)
 
+    def delete_file(self, file_url: str) -> str:
+        return delete_from_s3(file_url, self.endpoint_url, self.access_key, self.secret_key, self.bucket_name, self.region)
+
 def get_storage_provider() -> CloudStorageProvider:
     
     if os.getenv('S3_ENDPOINT_URL'):
@@ -114,5 +117,16 @@ def upload_file(file_path: str) -> str:
         return url
     except Exception as e:
         logger.error(f"Error uploading file to cloud storage: {e}")
+        raise
+
+def delete_file(file_url: str) -> str:
+    provider = get_storage_provider()
+    try:
+        logger.info(f"Deleting file from cloud storage: {file_url}")
+        key = provider.delete_file(file_url)
+        logger.info(f"File deleted successfully: {key}")
+        return key
+    except Exception as e:
+        logger.error(f"Error deleting file from cloud storage: {e}")
         raise
     
