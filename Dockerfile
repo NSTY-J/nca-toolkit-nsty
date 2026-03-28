@@ -55,7 +55,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install SRT from source (latest version using cmake)
+# Install SRT from source
 RUN git clone https://github.com/Haivision/srt.git && \
     cd srt && \
     mkdir build && cd build && \
@@ -81,9 +81,9 @@ RUN git clone https://github.com/Netflix/vmaf.git && \
     ninja -C build && \
     ninja -C build install && \
     cd ../.. && rm -rf vmaf && \
-    ldconfig  # Update the dynamic linker cache
+    ldconfig
 
-# Manually build and install fdk-aac (since it is not available via apt-get)
+# Manually build and install fdk-aac
 RUN git clone https://github.com/mstorsjo/fdk-aac && \
     cd fdk-aac && \
     autoreconf -fiv && \
@@ -92,7 +92,7 @@ RUN git clone https://github.com/mstorsjo/fdk-aac && \
     make install && \
     cd .. && rm -rf fdk-aac
 
-# Install libunibreak (required for ASS_FEATURE_WRAP_UNICODE)
+# Install libunibreak
 RUN git clone https://github.com/adah1972/libunibreak.git && \
     cd libunibreak && \
     ./autogen.sh && \
@@ -102,7 +102,7 @@ RUN git clone https://github.com/adah1972/libunibreak.git && \
     ldconfig && \
     cd .. && rm -rf libunibreak
 
-# Build and install libass with libunibreak support and ASS_FEATURE_WRAP_UNICODE enabled
+# Build and install libass
 RUN git clone https://github.com/libass/libass.git && \
     cd libass && \
     autoreconf -i && \
@@ -113,7 +113,7 @@ RUN git clone https://github.com/libass/libass.git && \
     ldconfig && \
     cd .. && rm -rf libass
 
-# Build and install FFmpeg 8 with shared libs (libavutil.so.60 etc.) for torchcodec
+# Build and install FFmpeg 8
 RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
     cd ffmpeg && \
     git checkout n8.0 && \
@@ -154,30 +154,20 @@ RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
     ldconfig && \
     cd .. && rm -rf ffmpeg
 
-# Add /usr/local/bin to PATH (if not already included)
 ENV PATH="/usr/local/bin:${PATH}"
 
-# Copy fonts into the custom fonts directory
 COPY ./fonts /usr/share/fonts/custom
 
-# Rebuild the font cache so that fontconfig can see the custom fonts
 RUN fc-cache -f -v
 
-# Set work directory
 WORKDIR /app
 
-# Set environment variable for Whisper cache
 ENV WHISPER_CACHE_DIR="/app/whisper_cache"
 
-# Create cache directory (no need for chown here yet)
-RUN mkdir -p ${WHISPER_CACHE_DIR} 
+RUN mkdir -p ${WHISPER_CACHE_DIR}
 
-# Copy the requirements file first to optimize caching
 COPY requirements.txt .
 
-# Install Python dependencies, upgrade pip
-# Uninstall torchcodec: pulled in by torchaudio/pyannote but ABI-incompatible with torch 2.8+cu128 in this image.
-# We do not use it (pyannote audio via soundfile+ffmpeg); removing it avoids the long torchcodec load traceback.
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install openai-whisper && \
@@ -185,30 +175,15 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install jsonschema && \
     pip uninstall -y torchcodec || true
 
-# Upgrade Lightning checkpoint used by WhisperX VAD so it does not run on every process
 RUN python -m lightning.pytorch.utilities.upgrade_checkpoint /usr/local/lib/python3.10/site-packages/whisperx/assets/pytorch_model.bin 2>/dev/null || true
 
-# Pre-download Whisper base model as root (before USER switch) so cache dir is writable
 RUN python -c "import os; import whisper; cache=os.environ.get('WHISPER_CACHE_DIR', '/app/whisper_cache'); whisper.load_model('base', download_root=cache)"
 
-# Create the appuser and give ownership of /app
-RUN useradd -m appuser && chown -R appuser:appuser /app
-USER appuser
-
-# Install Playwright Chromium browser as appuser
-RUN playwright install chromium
-
-# Copy the rest of the application code
+# Copy application code as root
 COPY . .
 
-# Expose the port the app runs on
-EXPOSE 8080
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-
-RUN echo '#!/bin/bash\n\
-gunicorn --bind 0.0.0.0:8080 \
+# Create run script as root
+RUN echo '#!/bin/bash\ngunicorn --bind 0.0.0.0:8080 \
     --workers ${GUNICORN_WORKERS:-2} \
     --timeout ${GUNICORN_TIMEOUT:-300} \
     --worker-class sync \
@@ -217,5 +192,16 @@ gunicorn --bind 0.0.0.0:8080 \
     app:app' > /app/run_gunicorn.sh && \
     chmod +x /app/run_gunicorn.sh
 
-# Run the shell script
+# Create appuser and transfer ownership
+RUN useradd -m appuser && chown -R appuser:appuser /app
+
+USER appuser
+
+# Install Playwright as appuser
+RUN playwright install chromium
+
+EXPOSE 8080
+
+ENV PYTHONUNBUFFERED=1
+
 CMD ["/app/run_gunicorn.sh"]
